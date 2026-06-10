@@ -8,7 +8,6 @@ ScriptedImporter:
   assetBundleName: 
   assetBundleVariant: 
   script: {fileID: 11500000, guid: 62a9f0aa5b59740cfbadc7e5f9823bb0, type: 3}
-  importerVersion: 1
   textureImporterSettings:
     alphaSource: 1
     mipMapMode: 0
@@ -133,7 +132,7 @@ ScriptedImporter:
       y: 4
       width: 20
       height: 22
-    spriteID: aec916b6f1a1dd04988f88fff157b453
+    spriteID: dd33c74031f313d43bc37777e7597dae
     spriteBone: []
     spriteOutline: []
     vertices: []
@@ -153,7 +152,7 @@ ScriptedImporter:
       y: 4
       width: 22
       height: 20
-    spriteID: 673c7e03ce6702b4594030513476bd47
+    spriteID: 33de624eb8cb1964ea8e8aeb3cf0318c
     spriteBone: []
     spriteOutline: []
     vertices: []
@@ -173,7 +172,7 @@ ScriptedImporter:
       y: 34
       width: 20
       height: 22
-    spriteID: 29146865d0b54bf4f912c9f3aac0bee9
+    spriteID: c743f81ed8be33844946dfb519169edb
     spriteBone: []
     spriteOutline: []
     vertices: []
@@ -193,7 +192,7 @@ ScriptedImporter:
       y: 32
       width: 22
       height: 20
-    spriteID: 5cb3224102b17d741b6b16166805c460
+    spriteID: 69451bd602d748341a9fe0601a74f8db
     spriteBone: []
     spriteOutline: []
     vertices: []
@@ -205,13 +204,13 @@ ScriptedImporter:
   spriteSheetImportData: []
   asepriteLayers:
   - layerIndex: 0
-    guid: 842948034
+    guid: -357079590
     name: Jump
     layerFlags: 0
     layerType: 0
     blendMode: 0
     cells:
-    - name: Frame_0
+    - name: Jump_Frame_0
       frameIndex: 0
       additiveSortOrder: 0
       cellRect:
@@ -219,8 +218,8 @@ ScriptedImporter:
         y: 6
         width: 20
         height: 22
-      spriteId: aec916b6f1a1dd04988f88fff157b453
-    - name: Frame_1
+      spriteId: dd33c74031f313d43bc37777e7597dae
+    - name: Jump_Frame_1
       frameIndex: 1
       additiveSortOrder: 0
       cellRect:
@@ -228,8 +227,8 @@ ScriptedImporter:
         y: 6
         width: 22
         height: 20
-      spriteId: 673c7e03ce6702b4594030513476bd47
-    - name: Frame_2
+      spriteId: 33de624eb8cb1964ea8e8aeb3cf0318c
+    - name: Jump_Frame_2
       frameIndex: 2
       additiveSortOrder: 0
       cellRect:
@@ -237,8 +236,8 @@ ScriptedImporter:
         y: 4
         width: 20
         height: 22
-      spriteId: 29146865d0b54bf4f912c9f3aac0bee9
-    - name: Frame_3
+      spriteId: c743f81ed8be33844946dfb519169edb
+    - name: Jump_Frame_3
       frameIndex: 3
       additiveSortOrder: 0
       cellRect:
@@ -246,7 +245,7 @@ ScriptedImporter:
         y: 6
         width: 22
         height: 20
-      spriteId: 5cb3224102b17d741b6b16166805c460
+      spriteId: 69451bd602d748341a9fe0601a74f8db
     linkedCells: []
     parentIndex: -1
   platformSettings: []
@@ -254,4 +253,3 @@ ScriptedImporter:
   secondarySpriteTextures: []
   spritePackingTag: 
   canvasSize: {x: 32, y: 32}
-  previousTextureSize: {x: 64, y: 64}

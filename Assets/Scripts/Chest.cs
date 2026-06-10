@@ -7,6 +7,8 @@ public class Chest : MonoBehaviour
     private Animator anim;
     private bool playerInRange;
 
+    [SerializeField] private GameObject diamond;
+
     private void Start()
     {
         anim = GetComponent<Animator>();
@@ -16,6 +18,11 @@ public class Chest : MonoBehaviour
     {
         if (playerInRange && Input.GetKeyDown(KeyCode.H))
             anim.SetBool("Open", true);
+    }
+
+    public void Open()
+    {
+        Instantiate(diamond, transform.position, Quaternion.identity);
     }
 
     private void OnTriggerEnter2D(Collider2D collision)

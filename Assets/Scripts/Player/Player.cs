@@ -13,10 +13,16 @@ public class Player : MonoBehaviour
 
     public int facingDir { get; private set; } = 1;
     private bool facingRight = true;
+
     public System.Action onFlipped;
+    public System.Action onHpChanged;
 
     public Transform shotPosition;
-    public GameObject shot;
+    public GameObject shotPrefab;
+
+    public int maxHp = 100;
+    public int currentHp;
+    public bool isDead;
 
     [SerializeField] protected Transform groundCheck;
     [SerializeField] protected float groundCheckDistance;
@@ -26,7 +32,9 @@ public class Player : MonoBehaviour
     public PlayerIdleState idleState { get; private set; }
     public PlayerMoveState moveState { get; private set; }
     public PlayerJumpState jumpState { get; private set; }
+    public PlayerDoubleJumpState doubleJumpState { get; private set; }
     public PlayerFallState fallState { get; private set; }
+    public PlayerDeadState deadState { get; private set; }
 
 
     private void Awake()
@@ -36,7 +44,9 @@ public class Player : MonoBehaviour
         idleState = new PlayerIdleState(this, stateMachine, "Idle");
         moveState = new PlayerMoveState(this, stateMachine, "Move");
         jumpState = new PlayerJumpState(this, stateMachine, "Jump");
-        fallState = new PlayerFallState(this, stateMachine, "fall");
+        doubleJumpState = new PlayerDoubleJumpState(this, stateMachine, "DoubleJump");
+        fallState = new PlayerFallState(this, stateMachine, "Jump");
+        deadState = new PlayerDeadState(this, stateMachine, "Dead");
     }
 
     private void Start()
@@ -46,6 +56,11 @@ public class Player : MonoBehaviour
         cd = GetComponent<CapsuleCollider2D>();
 
         stateMachine.Initialize(idleState);
+
+        currentHp = maxHp;
+
+        if (onHpChanged != null) 
+            onHpChanged();
     }
 
     private void Update()
@@ -55,10 +70,27 @@ public class Player : MonoBehaviour
 
     public void Shot()
     {
-        Debug.Log("shot");
-        Instantiate(shot, new Vector3(shotPosition.position.x, shotPosition.position.y, 0), Quaternion.identity);
+        GameObject shot = Instantiate(shotPrefab, shotPosition.position, Quaternion.identity);
+        shot.GetComponent<Shot>().facingDir = this.facingDir;
     }
 
+    public void TakeDamage(int _damage)
+    {
+        if (currentHp - _damage > 0)
+        {
+            currentHp -= _damage;
+        }
+        else
+        {
+            currentHp = 0;
+            isDead = true;
+            stateMachine.ChangeState(deadState);
+        }
+
+        onHpChanged();
+    }
+
+    #region velocity
     public void SetVelocity(float _xVelocity, float _yVelocity)
     {
         rb.velocity = new Vector2(_xVelocity, _yVelocity);
@@ -69,6 +101,7 @@ public class Player : MonoBehaviour
     {
         rb.velocity = new Vector2 (0, 0);
     }
+    #endregion
 
     public virtual bool IsGroundDetected() => Physics2D.Raycast(groundCheck.position, Vector2.down, groundCheckDistance, whatIsGround);
 

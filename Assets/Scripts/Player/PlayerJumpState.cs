@@ -26,7 +26,10 @@ public class PlayerJumpState : PlayerState
         base.Update();
 
         if (xInput != 0)
-            player.SetVelocity(xInput * .8f * player.moveSpeed, rb.velocity.y);
+            player.SetVelocity(xInput * player.moveSpeed, rb.velocity.y);
+
+        if (Input.GetKeyDown(KeyCode.Space))
+            stateMachine.ChangeState(player.doubleJumpState);
 
         if (player.IsGroundDetected() && stateTimer < 0)
             stateMachine.ChangeState(player.idleState);

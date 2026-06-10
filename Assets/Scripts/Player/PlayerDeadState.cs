@@ -2,9 +2,9 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
-public class PlayerFallState : PlayerState
+public class PlayerDeadState : PlayerState
 {
-    public PlayerFallState(Player _player, PlayerStateMachine _stateMachine, string _animBoolName) : base(_player, _stateMachine, _animBoolName)
+    public PlayerDeadState(Player _player, PlayerStateMachine _stateMachine, string _animBoolName) : base(_player, _stateMachine, _animBoolName)
     {
     }
 
@@ -21,8 +21,5 @@ public class PlayerFallState : PlayerState
     public override void Update()
     {
         base.Update();
-
-        if (player.IsGroundDetected())
-            stateMachine.ChangeState(player.idleState);
     }
 }
