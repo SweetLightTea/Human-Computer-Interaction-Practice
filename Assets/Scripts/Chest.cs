@@ -5,18 +5,24 @@ using UnityEngine;
 public class Chest : MonoBehaviour
 {
     private Animator anim;
+    private bool playerInRange;
 
     private void Start()
     {
         anim = GetComponent<Animator>();
     }
 
+    private void Update()
+    {
+        if (playerInRange && Input.GetKeyDown(KeyCode.H))
+            anim.SetBool("Open", true);
+    }
+
     private void OnTriggerEnter2D(Collider2D collision)
     {
         if (collision.gameObject.CompareTag("Player"))
         {
-            Debug.Log("Open");
-            anim.SetBool("Open", true);
+            playerInRange = true;
         }
     }
 }
