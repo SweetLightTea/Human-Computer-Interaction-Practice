@@ -1,0 +1,7 @@
+# 手势交互系统依赖
+# 安装方法: pip install -r requirements.txt
+
+opencv-python>=4.8.0
+mediapipe>=0.10.0
+pydirectinput>=1.0.4
+numpy>=1.24.0
