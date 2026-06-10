@@ -22,6 +22,9 @@ public class PlayerGroundState : PlayerState
     {
         base.Update();
 
+        if (Input.GetMouseButtonDown(0))
+            player.Shot();
+
         if (!player.IsGroundDetected())
             stateMachine.ChangeState(player.fallState);
 

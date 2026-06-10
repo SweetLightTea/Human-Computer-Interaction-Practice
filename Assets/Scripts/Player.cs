@@ -15,6 +15,9 @@ public class Player : MonoBehaviour
     private bool facingRight = true;
     public System.Action onFlipped;
 
+    public Transform shotPosition;
+    public GameObject shot;
+
     [SerializeField] protected Transform groundCheck;
     [SerializeField] protected float groundCheckDistance;
     [SerializeField] protected LayerMask whatIsGround;
@@ -48,6 +51,12 @@ public class Player : MonoBehaviour
     private void Update()
     {
         stateMachine.currentState.Update();
+    }
+
+    public void Shot()
+    {
+        Debug.Log("shot");
+        Instantiate(shot, new Vector3(shotPosition.position.x, shotPosition.position.y, 0), Quaternion.identity);
     }
 
     public void SetVelocity(float _xVelocity, float _yVelocity)
@@ -94,5 +103,6 @@ public class Player : MonoBehaviour
     protected virtual void OnDrawGizmos()
     {
         Gizmos.DrawLine(groundCheck.position, new Vector3(groundCheck.position.x, groundCheck.position.y - groundCheckDistance));
+        //Gizmos.DrawLine(shotPosition.position, new Vector3(shotPosition.position.x + .05f, shotPosition.position.y));
     }
 }
