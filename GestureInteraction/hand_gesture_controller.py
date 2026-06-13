@@ -1,31 +1,41 @@
 """
 手势交互控制器 - Hand Gesture Controller (主入口)
 
-通过摄像头检测左手手势，将其映射为游戏键盘输入。
+通过摄像头检测左右手手势，将其映射为游戏键盘/鼠标输入。
 
 ============================================================
   手势映射关系 (Gesture → Game Input)
 ============================================================
+  === 左手（移动/跳跃）===
   左手大拇指指向左侧   →  按住 A 键 (角色向左移动)
   左手大拇指指向右侧   →  按住 D 键 (角色向右移动)
   左手大拇指居中       →  释放 A/D 键 (角色停止)
   左手四指朝上         →  点按 Space 键 (角色跳跃)
+
+  === 右手（战斗/交互）===
+  右手握拳             →  鼠标左键点击 (开火射击)
+  右手五指张开         →  鼠标右键点击 (打开宝箱/捡宝石)
+  右手拇指朝上         →  点按 Q 键 (装弹)
 ============================================================
   对应 Unity 代码中的输入:
     PlayerState.cs:       Input.GetAxisRaw("Horizontal")
     PlayerGroundState.cs: Input.GetKeyDown(KeyCode.Space)
+    PlayerGroundState.cs: Input.GetMouseButtonDown(0)
+    Chest.cs/Diamond.cs:  Input.GetMouseButtonDown(1)
+    PlayerGroundState.cs: Input.GetKeyDown(KeyCode.Q)
 ============================================================
 
 使用方式:
   1. 安装依赖: pip install -r requirements.txt
   2. 运行本脚本: python hand_gesture_controller.py
-  3. 将左手对准摄像头，比划手势控制游戏
+  3. 将左右手对准摄像头，比划手势控制游戏
   4. 按 Q 键退出程序
 
 注意事项:
   - 推荐在光线充足的环境下使用
-  - 左手应完整出现在摄像头画面中
+  - 双手应完整出现在摄像头画面中
   - 摄像头画面已做镜像处理，操作直觉化
+  - 左手控制移动跳跃，右手控制战斗交互
   - 本程序不会修改任何 Unity 项目文件
 """
 
@@ -35,8 +45,8 @@ import signal
 import argparse
 from typing import Optional
 
-from gesture_detector import HandGestureDetector, GestureResult, MoveDirection
-from input_mapper import InputMapper
+from gesture_detector import HandGestureDetector, GestureResult, MoveDirection, RightHandGesture
+from gesture_sender import GestureSender
 
 
 # ============================================================
@@ -44,7 +54,8 @@ from input_mapper import InputMapper
 # ============================================================
 
 DEFAULT_CAMERA_ID = 0
-WINDOW_NAME = "Gesture Controller - Left Hand (Q=Quit, M=Mirror Toggle)"
+WINDOW_NAME = "Gesture Controller (Q=Quit, M=Mirror)"
+STARTUP_COUNTDOWN = 5  # 启动倒计时秒数，给用户时间点击 Unity 游戏窗口
 FRAME_WIDTH = 640
 FRAME_HEIGHT = 480
 TARGET_FPS = 30
@@ -82,7 +93,7 @@ class GestureController:
 
         # 初始化组件
         self.detector: Optional[HandGestureDetector] = None
-        self.mapper: Optional[InputMapper] = None
+        self.sender: Optional[GestureSender] = None
         self.capture: Optional[cv2.VideoCapture] = None
 
         # 运行状态
@@ -109,9 +120,9 @@ class GestureController:
         )
         print("[INFO] MediaPipe 手势检测器已加载")
 
-        # 初始化键盘映射器
-        self.mapper = InputMapper(use_direct_input=True)
-        print(f"[INFO] 键盘映射器已加载 (后端: {self.mapper._backend})")
+        # 初始化 UDP 发送器（发送手势数据给 Unity）
+        self.sender = GestureSender(host="127.0.0.1", port=12345)
+        print(f"[INFO] UDP 手势发送器已加载 → 127.0.0.1:12345")
 
         # 打开摄像头
         self.capture = cv2.VideoCapture(self.camera_id)
@@ -127,11 +138,23 @@ class GestureController:
         self._print_guide()
         print()
 
-        # 创建置顶预览窗口（即使在 Unity 前台运行时也不会被遮挡）
+        # 创建预览窗口（置顶显示，UDP 模式不影响游戏输入）
         if self.show_preview:
             cv2.namedWindow(WINDOW_NAME, cv2.WINDOW_NORMAL)
             cv2.resizeWindow(WINDOW_NAME, FRAME_WIDTH, FRAME_HEIGHT)
             cv2.setWindowProperty(WINDOW_NAME, cv2.WND_PROP_TOPMOST, 1)
+
+        # 尝试找到并激活 Unity 游戏窗口
+        self._try_focus_unity_window()
+
+        # 启动倒计时：给用户准备时间
+        print(f"\n[!!!] {STARTUP_COUNTDOWN} 秒后开始发送手势数据...")
+        print(f"[!!!] 请摆好手势姿势准备开始")
+        for i in range(STARTUP_COUNTDOWN, 0, -1):
+            print(f"  {i}...")
+            import time as _time
+            _time.sleep(1)
+        print("[GO!] 手势控制已激活，开始游戏！\n")
 
         # 注册信号处理器
         signal.signal(signal.SIGINT, self._signal_handler)
@@ -146,10 +169,10 @@ class GestureController:
         print("\n[INFO] 正在关闭...")
         self._running = False
 
-        # 释放所有按键
-        if self.mapper:
-            self.mapper.release_all()
-            print("[INFO] 已释放所有按键")
+        # 关闭 UDP 发送器
+        if self.sender:
+            self.sender.close()
+            print("[INFO] UDP 发送器已关闭")
 
         # 释放 MediaPipe
         if self.detector:
@@ -191,8 +214,8 @@ class GestureController:
             # 手势检测
             annotated_frame, gesture = self.detector.process_frame(frame)
 
-            # 映射到键盘输入
-            self.mapper.apply_gesture(gesture)
+            # 通过 UDP 发送手势数据给 Unity
+            self.sender.send(gesture)
 
             # 详细日志（手势状态变化时）
             if self.verbose and gesture != prev_gesture:
@@ -237,43 +260,98 @@ class GestureController:
 
     def _print_guide(self) -> None:
         """打印操作指南"""
-        print("-" * 44)
+        print("-" * 50)
         print("  操作指南:")
         print()
+        print("  === 左手（移动/跳跃）===")
         print("  左手大拇指 ←  →  A 键 (左移)")
         print("  左手大拇指 →  →  D 键 (右移)")
         print("  左手四指朝上  →  Space 键 (跳跃)")
+        print()
+        print("  === 右手（战斗/交互）===")
+        print("  右手握拳      →  鼠标左键 (开火)")
+        print("  右手五指张开  →  鼠标右键 (开宝箱/捡宝石)")
+        print("  右手拇指朝上  →  Q 键 (装弹)")
         print()
         print("  键盘控制:")
         print("    Q - 退出")
         print("    M - 切换镜像模式")
         print("    V - 切换详细日志")
         print("    R - 重置跳跃冷却")
-        print("-" * 44)
+        print("-" * 50)
         print()
-        print("[READY] 手势控制器已就绪，请确保 Unity 游戏窗口处于活动状态")
-        print("[READY] 将左手对准摄像头开始控制...")
+        print("[READY] 手势数据通过 UDP → Unity GestureReceiver 接收并映射按键")
+        print("[READY] 无需焦点，开箱即用！将双手对准摄像头开始控制...")
 
     def _log_gesture_change(self, gesture: GestureResult) -> None:
         """记录手势状态变化"""
         parts = []
 
-        if not gesture.hand_detected:
-            parts.append("[GESTURE] 未检测到左手")
+        # 左手
+        if not gesture.left_hand_detected:
+            parts.append("[左手] 未检测到")
         else:
             if gesture.move_direction == MoveDirection.LEFT:
-                parts.append("移动: ← 左")
+                parts.append("[左手] 移动: ←")
             elif gesture.move_direction == MoveDirection.RIGHT:
-                parts.append("移动: → 右")
+                parts.append("[左手] 移动: →")
             else:
-                parts.append("移动: · 停")
+                parts.append("[左手] 移动: ·")
 
             if gesture.is_jumping:
-                parts.append("跳跃: ↑")
+                parts.append("跳跃↑")
 
-            parts.append(f"(拇指偏角:{gesture.thumb_angle_deg:.1f} 朝上手指:{gesture.fingers_up_count})")
+        # 右手
+        if not gesture.right_hand_detected:
+            parts.append("[右手] 未检测到")
+        else:
+            gesture_names = {
+                RightHandGesture.NONE: "...",
+                RightHandGesture.FIST: "握拳→开火",
+                RightHandGesture.OPEN_PALM: "五指张开→交互",
+                RightHandGesture.THUMB_UP: "拇指朝上→装弹",
+            }
+            g_name = gesture_names.get(gesture.right_hand_gesture, "?")
+            parts.append(f"[右手] {g_name}")
 
         print(" | ".join(parts))
+
+    def _try_focus_unity_window(self) -> None:
+        """尝试找到 Unity 游戏窗口并激活它"""
+        try:
+            import ctypes
+            from ctypes import wintypes
+
+            user32 = ctypes.windll.user32
+
+            # 回调函数：遍历所有顶层窗口
+            WNDENUMPROC = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+            found_windows = []
+
+            def enum_callback(hwnd, lParam):
+                if user32.IsWindowVisible(hwnd):
+                    length = user32.GetWindowTextLengthW(hwnd)
+                    if length > 0:
+                        buf = ctypes.create_unicode_buffer(length + 1)
+                        user32.GetWindowTextW(hwnd, buf, length + 1)
+                        title = buf.value
+                        # Unity 游戏窗口通常包含这些关键字
+                        if title and ("Unity" in title or "SampleScene" in title or title not in ["", "Gesture"]):
+                            found_windows.append((hwnd, title))
+                return True
+
+            user32.EnumWindows(WNDENUMPROC(enum_callback), 0)
+
+            if found_windows:
+                for hwnd, title in found_windows:
+                    print(f"[INFO] 找到窗口: \"{title}\"")
+                    # 尝试激活窗口
+                    user32.SetForegroundWindow(hwnd)
+                    break
+            else:
+                print("[INFO] 未找到 Unity 游戏窗口（请手动点击游戏窗口）")
+        except Exception as e:
+            print(f"[INFO] 自动聚焦失败: {e}（请手动点击游戏窗口）")
 
     def _signal_handler(self, signum, frame) -> None:
         """处理 SIGINT/SIGTERM 信号，确保安全退出"""

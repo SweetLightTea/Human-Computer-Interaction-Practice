@@ -16,7 +16,7 @@ public class Chest : MonoBehaviour
 
     private void Update()
     {
-        if (playerInRange && Input.GetKeyDown(KeyCode.H))
+        if (playerInRange && (GestureReceiver.InteractTriggered || Input.GetMouseButtonDown(1)))
             anim.SetBool("Open", true);
     }
 
@@ -30,6 +30,16 @@ public class Chest : MonoBehaviour
         if (collision.gameObject.CompareTag("Player"))
         {
             playerInRange = true;
+            TutorialUI.instance?.OnEnterChestRange();
+        }
+    }
+
+    private void OnTriggerExit2D(Collider2D collision)
+    {
+        if (collision.gameObject.CompareTag("Player"))
+        {
+            playerInRange = false;
+            TutorialUI.instance?.OnExitChestRange();
         }
     }
 }

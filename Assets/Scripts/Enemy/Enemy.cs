@@ -66,11 +66,28 @@ public class Enemy : MonoBehaviour
         rb = GetComponent<Rigidbody2D>();
         cd = GetComponent<CapsuleCollider2D>();
 
+        // 创建一个触发区域用于检测玩家靠近（显示操作提示）
+        GameObject hintTrigger = new GameObject("HintTrigger");
+        hintTrigger.transform.SetParent(transform);
+        hintTrigger.transform.localPosition = Vector3.zero;
+        hintTrigger.layer = gameObject.layer;
+
+        CircleCollider2D triggerCol = hintTrigger.AddComponent<CircleCollider2D>();
+        triggerCol.isTrigger = true;
+        triggerCol.radius = agressiveDistance * 1.5f;
+
+        Rigidbody2D triggerRb = hintTrigger.AddComponent<Rigidbody2D>();
+        triggerRb.bodyType = RigidbodyType2D.Kinematic;
+        triggerRb.simulated = false;
+
+        // 添加一个辅助脚本将触发事件转发给父级 Enemy
+        hintTrigger.AddComponent<EnemyHintTrigger>().enemy = this;
+
         stateMachine.Initialize(idleState);
 
         currentHp = maxHp;
 
-        if (onFlipped != null) 
+        if (onFlipped != null)
             onHpChanged();
     }
 
@@ -103,8 +120,25 @@ public class Enemy : MonoBehaviour
 
     public void DeadToDestroy()
     {
+        TutorialUI.instance?.OnExitEnemyRange();
         Destroy(gameObject);
-    }    
+    }
+
+    /// <summary>
+    /// 玩家进入敌人提示范围：显示战斗操作提示
+    /// </summary>
+    public void OnPlayerEnterHintRange()
+    {
+        TutorialUI.instance?.OnEnterEnemyRange();
+    }
+
+    /// <summary>
+    /// 玩家离开敌人提示范围
+    /// </summary>
+    public void OnPlayerExitHintRange()
+    {
+        TutorialUI.instance?.OnExitEnemyRange();
+    }
 
     #region velocity
     public void SetVelocity(float _xVelocity, float _yVelocity)

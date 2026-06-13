@@ -34,8 +34,18 @@ public class PlayerState
     public virtual void Update()
     {
         stateTimer -= Time.deltaTime;
-        xInput = Input.GetAxisRaw("Horizontal");
+
+        // 手势输入优先，键盘输入作为后备
+        if (GestureReceiver.IsActive && GestureReceiver.MoveAxis != 0f)
+            xInput = GestureReceiver.MoveAxis;
+        else
+            xInput = Input.GetAxisRaw("Horizontal");
+
         yInput = Input.GetAxisRaw("Vertical");
+
+        // 装弹在所有状态下都可用（手势 + 键盘）
+        if (GestureReceiver.ReloadTriggered || Input.GetKeyDown(KeyCode.Q))
+            player.Reload();
     }
 
     public virtual void Exit()

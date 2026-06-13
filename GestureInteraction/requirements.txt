@@ -1,7 +1,8 @@
 # 手势交互系统依赖
 # 安装方法: pip install -r requirements.txt
+# 注意: mediapipe 必须用 0.10.11，0.10.35 移除了 solutions API
 
 opencv-python>=4.8.0
-mediapipe>=0.10.0
+mediapipe==0.10.11
 pydirectinput>=1.0.4
 numpy>=1.24.0

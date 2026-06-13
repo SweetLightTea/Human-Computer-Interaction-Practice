@@ -16,6 +16,9 @@ public class Player : MonoBehaviour
 
     public System.Action onFlipped;
     public System.Action onHpChanged;
+    public System.Action onAmmoChanged;
+    public System.Action onGemChanged;
+    public System.Action onDeath;
 
     public Transform shotPosition;
     public GameObject shotPrefab;
@@ -23,6 +26,14 @@ public class Player : MonoBehaviour
     public int maxHp = 100;
     public int currentHp;
     public bool isDead;
+
+    // 弹药系统
+    public int maxAmmo = 20;
+    public int currentAmmo;
+    public bool isReloading;
+
+    // 宝石系统
+    public int gemCount;
 
     [SerializeField] protected Transform groundCheck;
     [SerializeField] protected float groundCheckDistance;
@@ -58,9 +69,15 @@ public class Player : MonoBehaviour
         stateMachine.Initialize(idleState);
 
         currentHp = maxHp;
+        currentAmmo = maxAmmo;
+        gemCount = 0;
 
-        if (onHpChanged != null) 
+        if (onHpChanged != null)
             onHpChanged();
+        if (onAmmoChanged != null)
+            onAmmoChanged();
+        if (onGemChanged != null)
+            onGemChanged();
     }
 
     private void Update()
@@ -68,10 +85,42 @@ public class Player : MonoBehaviour
         stateMachine.currentState.Update();
     }
 
+    public bool CanShoot()
+    {
+        return currentAmmo > 0 && !isReloading;
+    }
+
     public void Shot()
     {
+        if (!CanShoot()) return;
+
+        currentAmmo--;
         GameObject shot = Instantiate(shotPrefab, shotPosition.position, Quaternion.identity);
         shot.GetComponent<Shot>().facingDir = this.facingDir;
+
+        if (onAmmoChanged != null)
+            onAmmoChanged();
+    }
+
+    public void Reload()
+    {
+        if (isReloading) return;
+        if (currentAmmo >= maxAmmo) return;
+
+        isReloading = true;
+        // 可以在这里添加换弹动画
+        currentAmmo = maxAmmo;
+        isReloading = false;
+
+        if (onAmmoChanged != null)
+            onAmmoChanged();
+    }
+
+    public void CollectGem(int amount = 1)
+    {
+        gemCount += amount;
+        if (onGemChanged != null)
+            onGemChanged();
     }
 
     public void TakeDamage(int _damage)
@@ -85,6 +134,9 @@ public class Player : MonoBehaviour
             currentHp = 0;
             isDead = true;
             stateMachine.ChangeState(deadState);
+
+            if (onDeath != null)
+                onDeath();
         }
 
         onHpChanged();

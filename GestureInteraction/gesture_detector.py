@@ -2,80 +2,88 @@
 手势检测模块 - Hand Detection & Gesture Recognition
 
 使用 MediaPipe Hands 检测手部关键点，识别以下手势：
+
+左手（移动/跳跃）:
   1. 左手大拇指方向 → 映射为水平移动方向 (左/右/静止)
   2. 左手四指朝上 → 映射为跳跃动作
 
+右手（战斗/交互）:
+  1. 右手握拳           → 鼠标左键（开火）
+  2. 右手五指张开       → 鼠标右键（打开宝箱/捡宝石）
+  3. 右手拇指朝上       → Q 键（装弹）
+
 MediaPipe 手部关键点索引:
   0:  手腕 (Wrist)
-  1:  拇指 CMC
-  2:  拇指 MCP
-  3:  拇指 IP
-  4:  拇指指尖 (Thumb Tip)
-  5:  食指 MCP
-  6:  食指 PIP
-  7:  食指 DIP
-  8:  食指指尖 (Index Tip)
-  9:  中指 MCP
-  10: 中指 PIP
-  11: 中指 DIP
-  12: 中指指尖 (Middle Tip)
-  13: 无名指 MCP
-  14: 无名指 PIP
-  15: 无名指 DIP
-  16: 无名指指尖 (Ring Tip)
-  17: 小指 MCP
-  18: 小指 PIP
-  19: 小指 DIP
-  20: 小指指尖 (Pinky Tip)
+  1:  拇指 CMC       2: 拇指 MCP      3: 拇指 IP      4: 拇指指尖
+  5:  食指 MCP       6: 食指 PIP      7: 食指 DIP     8: 食指指尖
+  9:  中指 MCP      10: 中指 PIP     11: 中指 DIP    12: 中指指尖
+  13: 无名指 MCP    14: 无名指 PIP   15: 无名指 DIP  16: 无名指指尖
+  17: 小指 MCP      18: 小指 PIP     19: 小指 DIP    20: 小指指尖
 """
 
 import cv2
 import mediapipe as mp
 import numpy as np
 from enum import Enum, auto
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional, Tuple
 
 
 class MoveDirection(Enum):
-    """水平移动方向"""
+    """左手水平移动方向"""
     LEFT = auto()
     RIGHT = auto()
     NONE = auto()
 
 
+class RightHandGesture(Enum):
+    """右手手势类型"""
+    NONE = auto()       # 未检测到 / 过渡状态
+    FIST = auto()       # 握拳 → 鼠标左键（开火）
+    OPEN_PALM = auto()  # 五指张开 → 鼠标右键（开宝箱/捡宝石）
+    THUMB_UP = auto()   # 拇指朝上 → Q 键（装弹）
+
+
 @dataclass
 class GestureResult:
     """手势识别结果"""
+    # 左手（移动/跳跃）
     move_direction: MoveDirection = MoveDirection.NONE
     is_jumping: bool = False
-    hand_detected: bool = False
-    # 调试信息
+    left_hand_detected: bool = False
     thumb_angle_deg: float = 0.0
     fingers_up_count: int = 0
+
+    # 右手（战斗/交互）
+    right_hand_detected: bool = False
+    right_hand_gesture: RightHandGesture = RightHandGesture.NONE
+    # 兼容旧代码
+    hand_detected: bool = False
 
 
 class HandGestureDetector:
     """
     手部手势检测器
 
-    使用 MediaPipe Hands 从摄像头画面中检测左手，
+    使用 MediaPipe Hands 从摄像头画面中检测左右手，
     并识别预定义的手势动作。
     """
 
-    # ---- 可调参数 ----
-    # 拇指方向阈值：拇指尖相对 MCP 关节的水平偏移比例
-    # thumb_tip.x - thumb_mcp.x 归一化到手掌尺寸后与此阈值比较
+    # ---- 左手参数 ----
     THUMB_HORIZONTAL_THRESHOLD = 0.08
-
-    # 手指朝上阈值：指尖 y 坐标需要比对应 PIP 关节高多少（归一化值）
     FINGER_UP_THRESHOLD = 0.04
-
-    # 跳跃触发所需的最小朝上手指数量
     MIN_FINGERS_UP_FOR_JUMP = 3
-
-    # 跳跃冷却帧数（防止连续触发）
     JUMP_COOLDOWN_FRAMES = 10
+
+    # ---- 右手参数 ----
+    # 握拳：指尖到手腕的距离 < MCP到手腕的距离 × 此系数
+    FIST_CURL_RATIO = 0.85
+    # 张开：手指朝上阈值（同左手）
+    OPEN_FINGER_UP_THRESHOLD = 0.03
+    # 拇指朝上：拇指尖 y 需要远小于拇指 MCP y
+    THUMB_UP_VERTICAL_THRESHOLD = 0.08
+    # 拇指朝上时其他手指需要卷曲（指尖低于 PIP）
+    THUMB_UP_CURL_THRESHOLD = 0.02
 
     def __init__(
         self,
@@ -84,15 +92,6 @@ class HandGestureDetector:
         min_detection_confidence: float = 0.7,
         min_tracking_confidence: float = 0.5,
     ):
-        """
-        初始化 MediaPipe Hands 检测器。
-
-        Args:
-            static_image_mode: 是否处理静态图片（False=视频流模式）
-            max_num_hands: 最大检测手数
-            min_detection_confidence: 检测置信度阈值 [0, 1]
-            min_tracking_confidence: 追踪置信度阈值 [0, 1]
-        """
         self.mp_hands = mp.solutions.hands
         self.hands = self.mp_hands.Hands(
             static_image_mode=static_image_mode,
@@ -105,17 +104,12 @@ class HandGestureDetector:
 
         self._jump_cooldown_counter: int = 0
 
+        # 右手手势防抖：连续 N 帧相同手势才确认
+        self._right_gesture_history: list = []
+        self._RIGHT_GESTURE_CONFIRM_FRAMES = 3
+
     def process_frame(self, frame: np.ndarray) -> Tuple[np.ndarray, GestureResult]:
-        """
-        处理单帧画面，检测手势并返回标注后的图像和识别结果。
-
-        Args:
-            frame: BGR 格式的摄像头帧 (H, W, 3)
-
-        Returns:
-            (annotated_frame, gesture_result): 标注后的帧和手势识别结果
-        """
-        # BGR → RGB (MediaPipe 需要 RGB)
+        """处理单帧画面"""
         frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         frame_rgb.flags.writeable = False
 
@@ -127,21 +121,24 @@ class HandGestureDetector:
         gesture = GestureResult()
 
         if results.multi_hand_landmarks and results.multi_handedness:
-            # 寻找左手
-            left_hand_landmarks = self._find_left_hand(
-                results.multi_hand_landmarks,
-                results.multi_handedness,
-            )
+            # 分别处理左右手
+            for idx, handedness in enumerate(results.multi_handedness):
+                label = handedness.classification[0].label
+                landmarks = results.multi_hand_landmarks[idx]
 
-            if left_hand_landmarks is not None:
-                gesture.hand_detected = True
-                gesture = self._recognize_gestures(left_hand_landmarks, annotated.shape)
+                if label == "Left":
+                    gesture.left_hand_detected = True
+                    gesture.hand_detected = True
+                    gesture = self._recognize_left_gestures(gesture, landmarks, annotated.shape)
+                    self._draw_landmarks(annotated, landmarks, (0, 255, 0))
 
-                # 绘制手部关键点
-                self._draw_landmarks(annotated, left_hand_landmarks)
+                elif label == "Right":
+                    gesture.right_hand_detected = True
+                    gesture = self._recognize_right_gestures(gesture, landmarks, annotated.shape)
+                    self._draw_landmarks(annotated, landmarks, (255, 165, 0))
 
-                # 绘制手势状态信息
-                self._draw_status_overlay(annotated, gesture)
+        # 绘制状态信息（无论是否检测到手都显示）
+        self._draw_status_overlay(annotated, gesture)
 
         # 冷却帧递减
         if self._jump_cooldown_counter > 0:
@@ -149,142 +146,203 @@ class HandGestureDetector:
 
         return annotated, gesture
 
-    def _find_left_hand(
+    # ================================================================
+    #  左手手势识别（移动 + 跳跃）
+    # ================================================================
+
+    def _recognize_left_gestures(
         self,
-        multi_hand_landmarks,
-        multi_handedness,
-    ) -> Optional[object]:
-        """
-        从多只手的结果中找到左手的关键点。
-
-        MediaPipe 的 handedness 分类给出的是解剖学意义上的左右手，
-        不受摄像头镜像影响。
-
-        Returns:
-            左手的关键点列表，如果未找到则返回 None
-        """
-        for idx, handedness in enumerate(multi_handedness):
-            label = handedness.classification[0].label
-            if label == "Left":
-                return multi_hand_landmarks[idx]
-        return None
-
-    def _recognize_gestures(
-        self,
+        result: GestureResult,
         landmarks,
         frame_shape: Tuple[int, int, int],
     ) -> GestureResult:
-        """
-        从手部关键点识别手势。
-
-        Args:
-            landmarks: MediaPipe 手部关键点
-            frame_shape: 帧的 (H, W, C)
-
-        Returns:
-            GestureResult 识别结果
-        """
         h, w, _ = frame_shape
-        result = GestureResult(hand_detected=True)
 
-        # ----- 1. 拇指方向检测 -----
-        thumb_mcp = landmarks.landmark[2]   # 拇指 MCP 关节
-        thumb_tip = landmarks.landmark[4]   # 拇指指尖
-
-        # 计算拇指尖相对 MCP 的水平偏移
+        # ----- 拇指方向检测 -----
+        thumb_mcp = landmarks.landmark[2]
+        thumb_tip = landmarks.landmark[4]
         thumb_horizontal_offset = thumb_tip.x - thumb_mcp.x
 
-        # 用手掌尺寸做归一化（手腕到中指 MCP 的距离）
         wrist = landmarks.landmark[0]
         middle_mcp = landmarks.landmark[9]
         hand_scale = max(abs(middle_mcp.x - wrist.x), abs(middle_mcp.y - wrist.y), 0.01)
-
         normalized_offset = thumb_horizontal_offset / hand_scale
 
         if normalized_offset < -self.THUMB_HORIZONTAL_THRESHOLD:
             result.move_direction = MoveDirection.LEFT
         elif normalized_offset > self.THUMB_HORIZONTAL_THRESHOLD:
             result.move_direction = MoveDirection.RIGHT
-        else:
-            result.move_direction = MoveDirection.NONE
 
-        result.thumb_angle_deg = normalized_offset * 100  # 放大用于调试显示
+        result.thumb_angle_deg = normalized_offset * 100
 
-        # ----- 2. 四指朝上检测 -----
-        # 检查食指、中指、无名指、小指是否朝上
-        # 判断标准：指尖 y < PIP关节 y（图像坐标系中 y 轴向下，所以更小的 y = 更高）
+        # ----- 四指朝上检测 -----
         fingers = [
-            (8, 6),    # 食指: tip=8, PIP=6
-            (12, 10),  # 中指: tip=12, PIP=10
-            (16, 14),  # 无名指: tip=16, PIP=14
-            (20, 18),  # 小指: tip=20, PIP=18
+            (8, 6), (12, 10), (16, 14), (20, 18),
         ]
-
         fingers_up = 0
         for tip_idx, pip_idx in fingers:
             tip = landmarks.landmark[tip_idx]
             pip = landmarks.landmark[pip_idx]
-            # y 值更小 = 位置更高（图像坐标）
             if tip.y < pip.y - self.FINGER_UP_THRESHOLD:
                 fingers_up += 1
-
         result.fingers_up_count = fingers_up
 
-        # 跳跃触发：四指朝上 + 未在冷却中
         if fingers_up >= self.MIN_FINGERS_UP_FOR_JUMP and self._jump_cooldown_counter == 0:
             result.is_jumping = True
             self._jump_cooldown_counter = self.JUMP_COOLDOWN_FRAMES
 
         return result
 
-    def _draw_landmarks(self, frame: np.ndarray, landmarks) -> None:
-        """在帧上绘制 MediaPipe 手部关键点和连线"""
+    # ================================================================
+    #  右手手势识别（战斗/交互）
+    # ================================================================
+
+    def _recognize_right_gestures(
+        self,
+        result: GestureResult,
+        landmarks,
+        frame_shape: Tuple[int, int, int],
+    ) -> GestureResult:
+        """
+        识别右手手势: FIST / OPEN_PALM / THUMB_UP
+
+        判断逻辑：
+          - 握拳: 所有手指卷曲（指尖低于 MCP）
+          - 五指张开: 所有手指伸直（指尖高于 PIP）
+          - 拇指朝上: 仅拇指伸直且朝上，其余手指卷曲
+        """
+        # 计算每根手指的伸直状态
+        fingers_extended = self._get_fingers_extended(landmarks)
+
+        # 拇指方向（专门用于 THUMB_UP 检测）
+        thumb_tip = landmarks.landmark[4]
+        thumb_mcp = landmarks.landmark[2]
+        thumb_ip = landmarks.landmark[3]
+        thumb_pointing_up = (thumb_mcp.y - thumb_tip.y) > self.THUMB_UP_VERTICAL_THRESHOLD
+
+        # 其他四指卷曲状态
+        index_curled = not fingers_extended[0]
+        middle_curled = not fingers_extended[1]
+        ring_curled = not fingers_extended[2]
+        pinky_curled = not fingers_extended[3]
+        thumb_extended = self._is_thumb_extended(landmarks)
+
+        all_curled = index_curled and middle_curled and ring_curled and pinky_curled and (not thumb_extended)
+        all_extended = all(fingers_extended) and thumb_extended
+
+        # 判定手势
+        if thumb_pointing_up and thumb_extended and index_curled and middle_curled and ring_curled and pinky_curled:
+            detected = RightHandGesture.THUMB_UP
+        elif all_extended:
+            detected = RightHandGesture.OPEN_PALM
+        elif all_curled:
+            detected = RightHandGesture.FIST
+        else:
+            detected = RightHandGesture.NONE
+
+        # 防抖：连续 N 帧相同手势才确认
+        self._right_gesture_history.append(detected)
+        if len(self._right_gesture_history) > self._RIGHT_GESTURE_CONFIRM_FRAMES:
+            self._right_gesture_history.pop(0)
+
+        if len(self._right_gesture_history) >= self._RIGHT_GESTURE_CONFIRM_FRAMES:
+            if all(g == detected for g in self._right_gesture_history):
+                result.right_hand_gesture = detected
+            else:
+                # 历史不一致，保持上一个已确认的手势
+                result.right_hand_gesture = RightHandGesture.NONE
+
+        return result
+
+    def _get_fingers_extended(self, landmarks) -> list:
+        """
+        返回食指、中指、无名指、小指是否伸直的列表 [bool, bool, bool, bool]
+        伸直标准：指尖 y < PIP关节 y（指尖在 PIP 上方）
+        """
+        fingers = [
+            (8, 6),    # 食指 tip, PIP
+            (12, 10),  # 中指 tip, PIP
+            (16, 14),  # 无名指 tip, PIP
+            (20, 18),  # 小指 tip, PIP
+        ]
+        extended = []
+        for tip_idx, pip_idx in fingers:
+            tip = landmarks.landmark[tip_idx]
+            pip = landmarks.landmark[pip_idx]
+            extended.append(tip.y < pip.y - self.OPEN_FINGER_UP_THRESHOLD)
+        return extended
+
+    def _is_thumb_extended(self, landmarks) -> bool:
+        """
+        判断拇指是否伸直。
+        标准：拇指尖到手腕的距离 > 拇指MCP到手腕的距离
+        """
+        wrist = landmarks.landmark[0]
+        thumb_tip = landmarks.landmark[4]
+        thumb_mcp = landmarks.landmark[2]
+
+        tip_dist = np.sqrt((thumb_tip.x - wrist.x)**2 + (thumb_tip.y - wrist.y)**2)
+        mcp_dist = np.sqrt((thumb_mcp.x - wrist.x)**2 + (thumb_mcp.y - wrist.y)**2)
+
+        return tip_dist > mcp_dist
+
+    # ================================================================
+    #  绘制
+    # ================================================================
+
+    def _draw_landmarks(self, frame: np.ndarray, landmarks, color: tuple) -> None:
+        """在帧上绘制手部关键点和连线"""
+        drawing_spec = self.mp_draw.DrawingSpec(color=color, thickness=2, circle_radius=3)
+        connection_spec = self.mp_draw.DrawingSpec(color=color, thickness=2)
         self.mp_draw.draw_landmarks(
-            frame,
-            landmarks,
-            self.mp_hands.HAND_CONNECTIONS,
-            self.mp_draw_styles.get_default_hand_landmarks_style(),
-            self.mp_draw_styles.get_default_hand_connections_style(),
+            frame, landmarks, self.mp_hands.HAND_CONNECTIONS,
+            drawing_spec, connection_spec,
         )
 
     def _draw_status_overlay(self, frame: np.ndarray, gesture: GestureResult) -> None:
         """在帧上绘制手势识别状态文字"""
         h, w = frame.shape[:2]
+        y_offset = 30
 
-        # 移动方向
-        if gesture.move_direction == MoveDirection.LEFT:
-            move_text = "MOVE: LEFT  <--"
-            move_color = (0, 255, 255)  # 黄色
-        elif gesture.move_direction == MoveDirection.RIGHT:
-            move_text = "MOVE: RIGHT -->"
-            move_color = (0, 255, 255)
+        # ---- 左手状态 ----
+        if gesture.left_hand_detected:
+            if gesture.move_direction == MoveDirection.LEFT:
+                text, color = "L: MOVE LEFT  <--", (0, 255, 255)
+            elif gesture.move_direction == MoveDirection.RIGHT:
+                text, color = "L: MOVE RIGHT -->", (0, 255, 255)
+            else:
+                text, color = "L: MOVE NONE", (128, 128, 128)
+
+            if gesture.is_jumping:
+                text += " | JUMP! ^"
+                color = (0, 0, 255)
         else:
-            move_text = "MOVE: NONE"
-            move_color = (128, 128, 128)
+            text, color = "L: NOT DETECTED", (100, 100, 100)
 
-        cv2.putText(frame, move_text, (10, 30),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, move_color, 2)
+        cv2.putText(frame, text, (10, y_offset),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
+        y_offset += 35
 
-        # 跳跃状态
-        if gesture.is_jumping:
-            jump_text = "JUMP! ^"
-            jump_color = (0, 0, 255)  # 红色
+        # ---- 右手状态 ----
+        if gesture.right_hand_detected:
+            if gesture.right_hand_gesture == RightHandGesture.FIST:
+                r_text, r_color = "R: FIST -> FIRE (LMB)", (0, 165, 255)
+            elif gesture.right_hand_gesture == RightHandGesture.OPEN_PALM:
+                r_text, r_color = "R: OPEN PALM -> INTERACT (RMB)", (0, 255, 127)
+            elif gesture.right_hand_gesture == RightHandGesture.THUMB_UP:
+                r_text, r_color = "R: THUMB UP -> RELOAD (Q)", (255, 255, 0)
+            else:
+                r_text, r_color = "R: (transition...)", (128, 128, 128)
         else:
-            jump_text = f"Fingers up: {gesture.fingers_up_count}"
-            jump_color = (128, 128, 128)
+            r_text, r_color = "R: NOT DETECTED", (100, 100, 100)
 
-        cv2.putText(frame, jump_text, (10, 65),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, jump_color, 2)
+        cv2.putText(frame, r_text, (10, y_offset),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, r_color, 2)
 
-        # 手部检测状态
-        status_text = "Left Hand: DETECTED"
-        cv2.putText(frame, status_text, (10, h - 20),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 1)
-
-        # 操作提示
-        hint_text = "Thumb=L/R | 4 Fingers Up=JUMP | Q=Quit"
-        cv2.putText(frame, hint_text, (w - 500, h - 20),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
+        # 底部操作提示
+        hint_text = "L:Thumb=L/R 4Fingers=JUMP | R:Fist=FIRE Open=INTERACT ThumbUp=RELOAD | Q=Quit"
+        cv2.putText(frame, hint_text, (10, h - 15),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.45, (180, 180, 180), 1)
 
     def release(self):
         """释放 MediaPipe 资源"""

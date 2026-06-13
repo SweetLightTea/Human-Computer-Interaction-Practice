@@ -22,13 +22,19 @@ public class PlayerGroundState : PlayerState
     {
         base.Update();
 
-        if (Input.GetMouseButtonDown(0))
-            player.Shot();
+        // 开枪：手势握拳 或 鼠标左键
+        if (GestureReceiver.FireTriggered || Input.GetMouseButtonDown(0))
+        {
+            if (player.CanShoot())
+                player.Shot();
+        }
 
         if (!player.IsGroundDetected())
             stateMachine.ChangeState(player.fallState);
 
-        if (Input.GetKeyDown(KeyCode.Space) && player.IsGroundDetected())
+        // 跳跃：手势四指朝上 或 空格键
+        if ((GestureReceiver.JumpTriggered || Input.GetKeyDown(KeyCode.Space))
+            && player.IsGroundDetected())
             stateMachine.ChangeState(player.jumpState);
     }
 }

@@ -15,8 +15,14 @@ public class Diamond : MonoBehaviour
 
     private void Update()
     {
-        if (playerInRange && Input.GetKeyDown(KeyCode.H))
+        if (playerInRange && (GestureReceiver.InteractTriggered || Input.GetMouseButtonDown(1)))
         {
+            // 通知玩家收集宝石
+            Player player = GameObject.FindGameObjectWithTag("Player").GetComponent<Player>();
+            if (player != null)
+            {
+                player.CollectGem(1);
+            }
             Destroy(this.gameObject);
         }
     }
